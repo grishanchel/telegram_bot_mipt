@@ -1,166 +1,20 @@
-import psycopg2
+import os
+
 import telebot
 from telebot import types
-import os
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
+from db import (register_student_to_db, find_student_by_email, get_schedule_for_student,
+                get_notifications_for_student, get_test_results_for_student, close_connection)
+from chatbot import ChatBot
+
+load_dotenv()
 API_TOKEN = os.getenv('API_TOKEN')
-DB_NAME = os.getenv('DB_NAME')
-DB_USER = os.getenv('DB_USER')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_HOST = os.getenv('DB_HOST')
-DB_PORT = os.getenv('DB_PORT')
 
 bot = telebot.TeleBot(API_TOKEN)
-
-conn = psycopg2.connect(
-    dbname=DB_NAME,
-    user=DB_USER,
-    password=DB_PASSWORD,
-    host=DB_HOST,
-    port=DB_PORT
-)
-
-cursor = conn.cursor()
-
-class Student:
-    def __init__(self, first_name, last_name, email):
-        self.first_name = first_name
-        self.last_name = last_name
-        self.email = email
-        self.courses = []
-
-    def enroll_course(self, course):
-        self.courses.append(course)
-
-    def drop_course(self, course):
-        self.courses.remove(course)
-
-class Teacher:
-    def __init__(self, first_name, last_name, email):
-        self.first_name = first_name
-        self.last_name = last_name
-        self.email = email
-        self.courses = []
-
-    def create_course(self, course_name):
-        course = Course(course_name, self)
-        self.courses.append(course)
-        return course
-
-    def add_lesson(self, course, lesson):
-        course.add_lesson(lesson)
-
-class Course:
-    def __init__(self, name, teacher):
-        self.name = name
-        self.teacher = teacher
-        self.lessons = []
-
-    def add_lesson(self, lesson):
-        self.lessons.append(lesson)
-
-    def remove_lesson(self, lesson):
-        self.lessons.remove(lesson)
-
-class Lesson:
-    def __init__(self, title, content):
-        self.title = title
-        self.content = content
-
-    def update_content(self, new_content):
-        self.content = new_content
-
-class ChatBot:
-    def __init__(self):
-        self.students = []
-        self.teachers = []
-
-    def register_student(self, student):
-        self.students.append(student)
-
-    def register_teacher(self, teacher):
-        self.teachers.append(teacher)
-
-    def find_student_by_email(self, email):
-        for student in self.students:
-            if student.email == email:
-                return student
-        return None
-
 chat_bot = ChatBot()
 
 user_data = {}
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS students (
-    id SERIAL PRIMARY KEY,
-    first_name VARCHAR(50),
-    last_name VARCHAR(50),
-    email VARCHAR(100) UNIQUE
-);
-''')
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS teachers (
-    id SERIAL PRIMARY KEY,
-    first_name VARCHAR(50),
-    last_name VARCHAR(50),
-    email VARCHAR(100) UNIQUE
-);
-''')
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS courses (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100),
-    teacher_id INTEGER REFERENCES teachers(id)
-);
-''')
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS lessons (
-    id SERIAL PRIMARY KEY,
-    title VARCHAR(100),
-    content TEXT,
-    course_id INTEGER REFERENCES courses(id)
-);
-''')
-
-conn.commit()
-
-def register_student_to_db(first_name, last_name, email):
-    cursor.execute('INSERT INTO students (first_name, last_name, email) VALUES (%s, %s, %s) RETURNING id', (first_name, last_name, email))
-    conn.commit()
-    return cursor.fetchone()[0]
-
-def find_student_by_email(email):
-    cursor.execute('SELECT * FROM students WHERE email=%s', (email,))
-    return cursor.fetchone()
-
-def get_schedule_for_student(student_id):
-    cursor.execute('''
-        SELECT s.start_time, s.end_time, l.title, c.name
-        FROM schedule s
-        JOIN lessons l ON s.lesson_id = l.id
-        JOIN courses c ON s.course_id = c.id
-        JOIN students st ON st.id = %s
-        WHERE st.id = %s;
-    ''', (student_id, student_id))
-    return cursor.fetchall()
-
-def get_notifications_for_student(student_id):
-    cursor.execute('SELECT message, timestamp FROM notifications WHERE student_id=%s', (student_id,))
-    return cursor.fetchall()
-
-def get_test_results_for_student(student_id):
-    cursor.execute('''
-        SELECT c.name, tr.score, tr.timestamp
-        FROM test_results tr
-        JOIN courses c ON tr.course_id = c.id
-        WHERE tr.student_id = %s;
-    ''', (student_id,))
-    return cursor.fetchall()
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -264,7 +118,4 @@ def test_results(message):
 
 bot.polling(none_stop=True, interval=0)
 
-cursor.close()
-conn.close()
-
-
+close_connection()
